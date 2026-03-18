@@ -1,86 +1,63 @@
-"""Stub implementation of TranscriptDB.
+"""MSSQL implementation using the internal Database lib.
 
-Replace the NotImplementedError bodies with your MSSQL code.
-Example connection pattern:
-
-    import pyodbc
-    conn = pyodbc.connect(
-        "DRIVER={ODBC Driver 18 for SQL Server};"
-        "SERVER=your_server;"
-        "DATABASE=your_db;"
-        "UID=your_user;"
-        "PWD=your_password;"
-    )
+Import path — adjust to wherever your lib lives:
+    from local_libs.database import Database as DB   # <-- change this line
 """
 
 from __future__ import annotations
 
+import secrets
 from datetime import date
 
 import pandas as pd
 
+# TODO: update this import to match your local path
+from local_libs.database import Database as DB  # type: ignore
+
 from .interface import TranscriptDB, TranscriptRef
+
+# The MSSQL database name passed to every DB call
+_TARGET = "your_database_name"  # TODO: set this
 
 
 class MSSQLTranscriptDB:
-    """Your MSSQL implementation — fill in the four methods below."""
-
-    def __init__(self, connection_string: str) -> None:
-        self._connection_string = connection_string
-        # Example:
-        # import pyodbc
-        # self._conn = pyodbc.connect(connection_string)
+    """Reads and writes transcript/sentiment data via the internal DB lib."""
 
     def get_transcript_urls(self, since_date: date | None) -> list[TranscriptRef]:
-        """
-        YOUR CODE HERE.
+        if since_date is not None:
+            query = f"""
+                SELECT event_id, company_id, event_date, url
+                FROM transcripts
+                WHERE createdOn > '{since_date}'
+                ORDER BY createdOn ASC
+            """
+        else:
+            query = """
+                SELECT event_id, company_id, event_date, url
+                FROM transcripts
+                ORDER BY createdOn ASC
+            """
 
-        Example SQL:
-            SELECT event_id, company_id, event_date, url
-            FROM transcripts
-            WHERE createdOn > ?
-            ORDER BY createdOn ASC
+        df = DB.getGenericMssql(query, _TARGET)
 
-        Return:
-            [TranscriptRef(event_id=..., company_id=..., event_date=..., url=...), ...]
-        """
-        raise NotImplementedError("Implement with your MSSQL query")
+        # Convert each row into a TranscriptRef
+        records = df[["event_id", "company_id", "event_date", "url"]].to_dict("records")
+        return [TranscriptRef(**r) for r in records]
 
     def upload_event_sentiments(self, df: pd.DataFrame) -> None:
-        """
-        YOUR CODE HERE.
-
-        Example SQL (MERGE for upsert):
-            MERGE INTO sentiment_events AS target
-            USING (VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)) AS source
-                  (event_id, company_id, event_date, section, sentence_count,
-                   sentiment_positive, sentiment_negative, sentiment_neutral,
-                   net_sentiment, sentiment_label,
-                   management_net_sentiment, analyst_net_sentiment,
-                   net_sentiment_prior_qtr, net_sentiment_delta_qoq,
-                   processed_at)
-            ON target.event_id = source.event_id AND target.section = source.section
-            WHEN MATCHED THEN UPDATE SET ...
-            WHEN NOT MATCHED THEN INSERT ...;
-        """
-        raise NotImplementedError("Implement with your MSSQL upsert")
+        df = df.copy()
+        df["id"] = [secrets.token_hex(8) for _ in range(len(df))]
+        DB.upload(df, _TARGET)
 
     def upload_sentence_sentiments(self, df: pd.DataFrame) -> None:
-        """
-        YOUR CODE HERE.
+        # DB.upload requires a unique ID column — add one using a random hex string
+        df = df.copy()
+        df["id"] = [secrets.token_hex(8) for _ in range(len(df))]
+        DB.upload(df, _TARGET)
 
-        Upsert to sentiment_sentences table.
-        Key: (event_id, paragraph_index, sentence_index).
-        """
-        raise NotImplementedError("Implement with your MSSQL upsert")
-
-    def get_prior_event_sentiments(
-        self, company_ids: list[int]
-    ) -> pd.DataFrame:
-        """
-        YOUR CODE HERE.
-
-        Example SQL:
+    def get_prior_event_sentiments(self, company_ids: list[int]) -> pd.DataFrame:
+        ids = ", ".join(str(i) for i in company_ids)
+        query = f"""
             SELECT company_id, net_sentiment
             FROM (
                 SELECT company_id, net_sentiment,
@@ -90,10 +67,8 @@ class MSSQLTranscriptDB:
                        ) AS rn
                 FROM sentiment_events
                 WHERE section = 'all'
-                  AND company_id IN (?, ?, ...)
+                  AND company_id IN ({ids})
             ) sub
             WHERE rn = 1
-
-        Return: DataFrame with columns [company_id, net_sentiment]
         """
-        raise NotImplementedError("Implement with your MSSQL query")
+        return DB.getGenericMssql(query, _TARGET)
