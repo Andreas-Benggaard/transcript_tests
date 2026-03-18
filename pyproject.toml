@@ -1,0 +1,17 @@
+[project]
+name = "transcripts"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.13"
+dependencies = [
+    "pandas>=3.0.1",
+    "pyarrow>=23.0.1",
+    "requests>=2.32.5",
+    "torch>=2.10.0",
+    "transformers>=5.3.0",
+]
+
+[dependency-groups]
+dev = [
+    "vulture>=2.15",
+]
