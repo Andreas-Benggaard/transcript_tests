@@ -1,30 +1,104 @@
-from __future__ import annotations
+import logging
+from dataclasses import dataclass
 
 import pandas as pd
+import torch
+from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
-from ..enrichment.threshold import threshold_labels
+from enrichment import threshold_labels
+
+logger = logging.getLogger(__name__)
+
+MAX_TOKENS = 512
+LABEL_ORDER = ["positive", "negative", "neutral"]
 
 
-def _mode_label(labels: pd.Series) -> str:
+@dataclass(frozen=True)
+class SentimentResult:
+    label: str
+    positive: float
+    negative: float
+    neutral: float
+
+
+def _batches(items, size):
+    for i in range(0, len(items), size):
+        yield items[i : i + size]
+
+
+def load_sentiment_model(model_path):
+    tokenizer = AutoTokenizer.from_pretrained(model_path)
+    model = AutoModelForSequenceClassification.from_pretrained(model_path)
+    return tokenizer, model
+
+
+class FinBERTAnalyzer:
+    def __init__(self, model_path):
+        self._device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        logger.info("Loading FinBERT on %s", self._device)
+        self._tokenizer, self._model = load_sentiment_model(model_path)
+        self._model.to(self._device)
+        self._model.eval()
+
+        # FinBERT label order from config: positive=0, negative=1, neutral=2
+        id2label = self._model.config.id2label
+        self._idx_positive = next(k for k, v in id2label.items() if v == "positive")
+        self._idx_negative = next(k for k, v in id2label.items() if v == "negative")
+        self._idx_neutral = next(k for k, v in id2label.items() if v == "neutral")
+
+    def predict_batch(self, texts, batch_size=32):
+        """Run FinBERT on a list of texts. Returns one SentimentResult per text."""
+        results = []
+
+        for batch in _batches(texts, batch_size):
+            encoded = self._tokenizer(
+                batch,
+                padding=True,
+                truncation=True,
+                max_length=MAX_TOKENS,
+                return_tensors="pt",
+            )
+
+            # Log any text that was likely truncated
+            for text in batch:
+                tokens = self._tokenizer.encode(text, add_special_tokens=True)
+                if len(tokens) >= MAX_TOKENS:
+                    logger.warning(
+                        "Text truncated to %d tokens: %s...", MAX_TOKENS, text[:80]
+                    )
+
+            encoded = {k: v.to(self._device) for k, v in encoded.items()}
+            with torch.no_grad():
+                logits = self._model(**encoded).logits
+            probs = torch.softmax(logits, dim=-1).cpu().tolist()
+
+            for row in probs:
+                pos = row[self._idx_positive]
+                neg = row[self._idx_negative]
+                neu = row[self._idx_neutral]
+                label = LABEL_ORDER[[pos, neg, neu].index(max(pos, neg, neu))]
+                results.append(
+                    SentimentResult(label=label, positive=pos, negative=neg, neutral=neu)
+                )
+
+        return results
+
+
+def _mode_label(labels):
     return labels.mode().iloc[0]
 
 
-def _speaker_net_sentiment(
-    sentence_df: pd.DataFrame,
-    speaker_type: str,
-    groupby_cols: list[str],
-) -> pd.Series:
-    """Compute net_sentiment for a specific speaker_type within each group."""
+def _speaker_net_sentiment(sentence_df, speaker_type, groupby_cols):
+    """Compute net_sentiment for a specific speaker type within each group."""
     filtered = sentence_df[sentence_df["speaker_type"] == speaker_type]
     if filtered.empty:
         return pd.Series(dtype=float)
-    grouped = filtered.groupby(groupby_cols, dropna=False)
-    return grouped.apply(
+    return filtered.groupby(groupby_cols, dropna=False).apply(
         lambda g: g["sentiment_positive"].mean() - g["sentiment_negative"].mean()
     )
 
 
-def aggregate_paragraphs(sentence_df: pd.DataFrame) -> pd.DataFrame:
+def aggregate_paragraphs(sentence_df):
     """Aggregate sentence-level sentiment to paragraph level.
 
     Returns a new DataFrame — input is never mutated.
@@ -55,7 +129,7 @@ def aggregate_paragraphs(sentence_df: pd.DataFrame) -> pd.DataFrame:
     return agg
 
 
-def aggregate_events(sentence_df: pd.DataFrame) -> pd.DataFrame:
+def aggregate_events(sentence_df):
     """Aggregate sentence-level sentiment to event (full transcript) level.
 
     Returns a new DataFrame — input is never mutated.
@@ -79,10 +153,10 @@ def aggregate_events(sentence_df: pd.DataFrame) -> pd.DataFrame:
 
     # Add management / analyst net sentiment
     mgmt_net = _speaker_net_sentiment(
-        sentence_df, "management", ["event_id", "company_id", "date"]
+        sentence_df, "management", groupby_cols=["event_id", "company_id", "date"]
     )
     analyst_net = _speaker_net_sentiment(
-        sentence_df, "analyst", ["event_id", "company_id", "date"]
+        sentence_df, "analyst", groupby_cols=["event_id", "company_id", "date"]
     )
 
     if not mgmt_net.empty:
@@ -100,15 +174,14 @@ def aggregate_events(sentence_df: pd.DataFrame) -> pd.DataFrame:
     return agg
 
 
-def aggregate_events_by_section(sentence_df: pd.DataFrame) -> pd.DataFrame:
+def aggregate_events_by_section(sentence_df):
     """Aggregate sentiment per event per section (prepared_remarks / q_and_a).
 
     Returns rows for each section plus the 'all' rollup from aggregate_events.
     Input is never mutated.
     """
-    # Per-section aggregation
     if "section" not in sentence_df.columns:
-        return aggregate_events(sentence_df)
+        return sentence_df
 
     grouped = sentence_df.groupby(
         ["event_id", "company_id", "date", "section"], dropna=False

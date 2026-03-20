@@ -1,11 +1,36 @@
-from __future__ import annotations
+class SentenceRecord:
+    def __init__(
+        self,
+        event_id,
+        company_id,
+        paragraph_index,
+        sentence_index,
+        speaker_id,
+        speaker_name,
+        speaker_role,
+        speaker_company,
+        text,
+        start_time,
+        end_time,
+        speaker_type="unknown",
+        section="unknown",
+    ):
+        self.event_id = event_id
+        self.company_id = company_id
+        self.paragraph_index = paragraph_index
+        self.sentence_index = sentence_index
+        self.speaker_id = speaker_id
+        self.speaker_name = speaker_name
+        self.speaker_role = speaker_role
+        self.speaker_company = speaker_company
+        self.text = text
+        self.start_time = start_time
+        self.end_time = end_time
+        self.speaker_type = speaker_type
+        self.section = section
 
-from typing import Any
 
-from .base import SentenceRecord
-
-
-def parse_transcript(data: dict[str, Any]) -> list[SentenceRecord]:
+def parse_transcript(data):
     """Parse either transcript format into a flat list of SentenceRecords.
 
     In-house format: has 'speaker_mapping' key with named speakers.
@@ -14,13 +39,14 @@ def parse_transcript(data: dict[str, Any]) -> list[SentenceRecord]:
     event_id = data["event_id"]
     company_id = data["company_id"]
 
-    speaker_map: dict[int, dict[str, str]] = {}
+    # Build speaker lookup table
+    speaker_map = {}
     for entry in data.get("speaker_mapping", []):
         speaker_map[entry["speaker"]] = entry.get("speaker_data", {})
 
-    records: list[SentenceRecord] = []
+    records = []
     for para_idx, paragraph in enumerate(data["transcript"]["paragraphs"]):
-        speaker_id: int = paragraph.get("speaker", -1)
+        speaker_id = paragraph.get("speaker", -1)
         speaker_data = speaker_map.get(speaker_id, {})
 
         for sent_idx, sentence in enumerate(paragraph.get("sentences", [])):

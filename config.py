@@ -1,4 +1,3 @@
-import tempfile
 from pathlib import Path
 
 # Batch processing
@@ -6,13 +5,13 @@ BATCH_SIZE = 10
 FINBERT_BATCH_SIZE = 32
 DOWNLOAD_TIMEOUT_SECONDS = 30
 
-# Sentiment thresholds for event-level labeling
+# Sentiment thresholds for event-level labelling
 NET_SENTIMENT_POSITIVE_THRESHOLD = 0.05
 NET_SENTIMENT_NEGATIVE_THRESHOLD = -0.05
 
-# Paths
-TEMP_DIR = Path(tempfile.gettempdir()) / "transcripts_pipeline"
-STATE_FILE = Path("~/.transcripts_pipeline_last_run").expanduser()
+# Paths  — update TEMP_DIR and MODEL_PATH to match your machine
+TEMP_DIR = Path("C:/Users/G08594/Desktop/LocalCode/ML_Classification/TranscriptSentiment/clonedtranscripts")
+MODEL_PATH = "C:/Users/G08594/Desktop/LocalCode/ML_Classification/TranscriptSentiment/bert"
 
 # Speaker classification keywords (lowercase)
 MANAGEMENT_KEYWORDS = frozenset({
