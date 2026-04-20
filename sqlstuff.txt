@@ -1,0 +1,73 @@
+-- one row per call
+CREATE TABLE [EDI].[raw].[sentiment_events] (
+    docid               BIGINT       NOT NULL PRIMARY KEY,
+    companyid           INT          NOT NULL,
+    eventid             INT          NOT NULL,
+    createdat           DATETIME2    NOT NULL,
+    total_sentences     INT          NOT NULL,
+    total_words         INT          NOT NULL,
+    num_speakers        INT          NOT NULL,
+    duration_sec        DECIMAL(10,2) NULL,
+    weighted_score      DECIMAL(7,5) NOT NULL,
+    p_pos DECIMAL(7,5), p_neu DECIMAL(7,5), p_neg DECIMAL(7,5),
+    pct_positive DECIMAL(7,5), pct_negative DECIMAL(7,5), pct_neutral DECIMAL(7,5),
+    tone_dispersion     DECIMAL(7,5) NOT NULL,
+    prepared_score      DECIMAL(7,5) NULL,
+    qna_score           DECIMAL(7,5) NULL,
+    qna_vs_prepared     DECIMAL(7,5) NULL,
+    dominant_sentiment  VARCHAR(10)  NOT NULL,
+    model_version       VARCHAR(64)  NOT NULL,
+    run_ts              DATETIME2    NOT NULL
+);
+
+-- one row per (call, speaker)
+CREATE TABLE [EDI].[raw].[sentiment_speakers] (
+    docid_speakerid     BIGINT       NOT NULL PRIMARY KEY,
+    docid               BIGINT       NOT NULL,
+    companyid           INT          NOT NULL,
+    eventid             INT          NOT NULL,
+    speaker_id          INT          NOT NULL,
+    speaker_name        NVARCHAR(200) NULL,
+    speaker_role        NVARCHAR(200) NULL,
+    speaker_company     NVARCHAR(200) NULL,
+    role_class          VARCHAR(20)  NOT NULL,
+    weighted_score      DECIMAL(7,5) NOT NULL,
+    p_pos DECIMAL(7,5), p_neu DECIMAL(7,5), p_neg DECIMAL(7,5),
+    pct_positive DECIMAL(7,5), pct_negative DECIMAL(7,5), pct_neutral DECIMAL(7,5),
+    tone_dispersion     DECIMAL(7,5) NOT NULL,
+    prepared_score      DECIMAL(7,5) NULL,
+    qna_score           DECIMAL(7,5) NULL,
+    dominant_sentiment  VARCHAR(10)  NOT NULL,
+    n_sentences         INT          NOT NULL,
+    n_words             INT          NOT NULL,
+    model_version       VARCHAR(64)  NOT NULL,
+    run_ts              DATETIME2    NOT NULL
+);
+
+-- one row per paragraph
+CREATE TABLE [EDI].[raw].[sentiment_segments] (
+    docid_paragraphindex BIGINT      NOT NULL PRIMARY KEY,
+    docid               BIGINT       NOT NULL,
+    companyid           INT          NOT NULL,
+    eventid             INT          NOT NULL,
+    paragraph_index     INT          NOT NULL,
+    speaker_id          INT          NOT NULL,
+    role_class          VARCHAR(20)  NOT NULL,
+    section             VARCHAR(20)  NOT NULL,
+    weighted_score      DECIMAL(7,5) NOT NULL,
+    p_pos DECIMAL(7,5), p_neu DECIMAL(7,5), p_neg DECIMAL(7,5),
+    argmax_label        VARCHAR(10)  NOT NULL,
+    n_sentences         INT          NOT NULL,
+    n_words             INT          NOT NULL,
+    start_sec           DECIMAL(10,2) NULL,
+    end_sec             DECIMAL(10,2) NULL,
+    text_hash           CHAR(64)     NOT NULL,
+    model_version       VARCHAR(64)  NOT NULL,
+    run_ts              DATETIME2    NOT NULL
+);
+-- Optional indexes. Run after the bulk upload if dashboards need speedups.
+CREATE INDEX IX_events_company_date  ON [EDI].[raw].[sentiment_events]   (companyid, createdat);
+CREATE INDEX IX_speakers_docid       ON [EDI].[raw].[sentiment_speakers] (docid);
+CREATE INDEX IX_speakers_role        ON [EDI].[raw].[sentiment_speakers] (companyid, role_class);
+CREATE INDEX IX_segments_docid       ON [EDI].[raw].[sentiment_segments] (docid);
+CREATE INDEX IX_segments_section     ON [EDI].[raw].[sentiment_segments] (docid, section);

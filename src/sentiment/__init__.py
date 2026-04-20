@@ -1,0 +1,1 @@
+MODEL_VERSION = "finbert-2024-01"
